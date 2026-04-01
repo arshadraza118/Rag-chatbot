@@ -1,28 +1,34 @@
 import streamlit as st
-import google.generativeai as genai 
+import os
 import PyPDF2
 import numpy as np
 import faiss
+from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 
-# 🔑 Your Gemini API key
-import os
-from dotenv import load_dotenv
+# -------------------------
+# CONFIG
+# -------------------------
+st.set_page_config(page_title="AI RAG Chatbot", layout="wide")
+st.title("🚀 AI PDF Chatbot (RAG)")
 
-load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# -------------------------
+# LOAD API KEY (STREAMLIT CLOUD)
+# -------------------------
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-st.set_page_config(page_title="AI PDF Chatbot", layout="wide")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-st.title("🚀 Advanced AI PDF Chatbot")
+# -------------------------
+# LOAD EMBEDDING MODEL
+# -------------------------
+embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# -------------------------------
+# -------------------------
 # SESSION STATE
-# -------------------------------
+# -------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
-if "all_text" not in st.session_state:
-    st.session_state.all_text = ""
 
 if "index" not in st.session_state:
     st.session_state.index = None
@@ -30,132 +36,100 @@ if "index" not in st.session_state:
 if "chunks" not in st.session_state:
     st.session_state.chunks = []
 
-# -------------------------------
-# SIDEBAR (UPLOAD + CONTROLS)
-# -------------------------------
+# -------------------------
+# SIDEBAR (UPLOAD)
+# -------------------------
 with st.sidebar:
     st.header("📂 Upload PDFs")
 
-    uploaded_files = st.file_uploader(
-        "Upload files", type="pdf", accept_multiple_files=True
-    )
+    files = st.file_uploader("Upload", type="pdf", accept_multiple_files=True)
 
-    if uploaded_files:
-        all_text = ""
+    if files:
+        text = ""
 
-        for file in uploaded_files:
+        for file in files:
             reader = PyPDF2.PdfReader(file)
             for page in reader.pages:
-                all_text += page.extract_text() + "\n"
+                text += page.extract_text() + "\n"
 
-        st.session_state.all_text = all_text
-
-        # -----------------------
         # SPLIT TEXT
-        # -----------------------
-        def split_text(text, chunk_size=500):
-            return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+        def split_text(text, size=500):
+            return [text[i:i+size] for i in range(0, len(text), size)]
 
-        chunks = split_text(all_text)
+        chunks = split_text(text)
         st.session_state.chunks = chunks
 
-        # -----------------------
-        # CREATE VECTORS
-        # -----------------------
-        def text_to_vector(text):
-            vector = np.zeros(300)
-            for i, char in enumerate(text[:300]):
-                vector[i] = ord(char)
-            return vector.astype("float32")
+        # CREATE EMBEDDINGS
+        embeddings = embed_model.encode(chunks)
+        embeddings = np.array(embeddings).astype("float32")
 
-        vectors = np.array([text_to_vector(c) for c in chunks])
-
-        # -----------------------
-        # BUILD FAISS INDEX
-        # -----------------------
-        dimension = vectors.shape[1]
-        index = faiss.IndexFlatL2(dimension)
-        index.add(vectors)
+        # FAISS INDEX
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatL2(dim)
+        index.add(embeddings)
 
         st.session_state.index = index
 
-        st.success(f"{len(uploaded_files)} PDFs processed!")
+        st.success(f"{len(files)} PDFs processed!")
 
-    # Clear chat button
     if st.button("🗑 Clear Chat"):
         st.session_state.messages = []
 
-# -------------------------------
+# -------------------------
 # SEARCH FUNCTION
-# -------------------------------
+# -------------------------
 def search(query, k=5):
-    index = st.session_state.index
-    chunks = st.session_state.chunks
-
-    if index is None:
+    if st.session_state.index is None:
         return []
 
-    def text_to_vector(text):
-        vector = np.zeros(300)
-        for i, char in enumerate(text[:300]):
-            vector[i] = ord(char)
-        return vector.astype("float32")
+    q_vec = embed_model.encode([query]).astype("float32")
 
-    q_vec = text_to_vector(query).reshape(1, -1)
-    D, I = index.search(q_vec, k)
+    D, I = st.session_state.index.search(q_vec, k)
 
-    return [chunks[i] for i in I[0]]
+    return [st.session_state.chunks[i] for i in I[0]]
 
-# -------------------------------
+# -------------------------
 # DISPLAY CHAT
-# -------------------------------
+# -------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# -------------------------------
+# -------------------------
 # USER INPUT
-# -------------------------------
+# -------------------------
 user_input = st.chat_input("Ask something about your PDFs...")
 
 if user_input:
-    # Save user message
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # ---------------------------
     # GET CONTEXT
-    # ---------------------------
-    relevant_chunks = search(user_input, k=5)
+    relevant_chunks = search(user_input)
 
     if not relevant_chunks:
-        ai_reply = "⚠️ Please upload PDFs first."
+        reply = "⚠️ Please upload PDFs first."
     else:
         context = "\n".join(relevant_chunks)
 
         prompt = f"""
         You are a helpful AI assistant.
 
-        Give detailed and complete answers.
+        Answer clearly and in detail using the context below.
 
-        Use this content:
-
+        Context:
         {context}
 
-        Question: {user_input}
+        Question:
+        {user_input}
         """
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
+        reply = response.text
 
-        ai_reply = response.text
-
-    # Save AI reply
-    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+    st.session_state.messages.append({"role": "assistant", "content": reply})
 
     with st.chat_message("assistant"):
-        st.markdown(ai_reply)
+        st.markdown(reply)
