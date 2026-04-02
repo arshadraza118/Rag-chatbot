@@ -15,7 +15,13 @@ st.title("🚀 AI PDF Chatbot (RAG)")
 # -------------------------
 # API KEY
 # -------------------------
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    st.error("⚠️ GEMINI_API_KEY not found! Please add it to your Streamlit Secrets.")
+    st.stop()
+
+genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 # -------------------------
