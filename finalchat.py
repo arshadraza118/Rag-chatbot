@@ -21,13 +21,17 @@ if not api_key:
     st.error("⚠️ GEMINI_API_KEY not found! Please add it to your Streamlit Secrets.")
     st.stop()
 
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
+# -------------------------
+# MODELS (CACHED)
+# -------------------------
+@st.cache_resource
+def load_models():
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model, embed_model
 
-# -------------------------
-# EMBEDDING MODEL
-# -------------------------
-embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+model, embed_model = load_models()
 
 # -------------------------
 # SESSION STATE
