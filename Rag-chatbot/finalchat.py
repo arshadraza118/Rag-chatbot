@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import PyPDF2
+# import PyPDF2
 from pypdf import PdfReader
 import numpy as np
 import faiss
