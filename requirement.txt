@@ -1,6 +1,0 @@
-streamlit
-pypdf
-faiss-cpu
-numpy
-sentence-transformers
-google-generativeai
