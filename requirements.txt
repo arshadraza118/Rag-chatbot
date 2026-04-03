@@ -3,5 +3,6 @@ pypdf
 faiss-cpu
 numpy
 sentence-transformers
-google-generativeai
+google-generativeai>=0.7.2
 torch
+python-dotenv

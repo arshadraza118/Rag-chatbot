@@ -5,6 +5,10 @@ import faiss
 from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 from pypdf import PdfReader
+from dotenv import load_dotenv
+
+# Load .env file for local development
+load_dotenv()
 
 # -------------------------
 # CONFIG
@@ -15,10 +19,18 @@ st.title("🚀 AI PDF Chatbot (RAG)")
 # -------------------------
 # API KEY
 # -------------------------
+# Priority: 1. Environment Variable (.env or OS) 2. Streamlit Secrets (Cloud)
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("⚠️ GEMINI_API_KEY not found! Add it in Streamlit Secrets.")
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        # st.secrets might raise an error if no secrets file exists locally
+        api_key = None
+
+if not api_key:
+    st.error("⚠️ GEMINI_API_KEY not found! Add it in a .env file locally or in Streamlit Secrets on Cloud.")
     st.stop()
 
 # -------------------------
@@ -28,8 +40,8 @@ if not api_key:
 def load_models():
     genai.configure(api_key=api_key)
 
-    # ✅ FINAL FIXED MODEL NAME
-    model = genai.GenerativeModel("models/gemini-1.5-flash")
+    # ✅ Use standard model name without 'models/' prefix
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -67,23 +79,31 @@ with st.sidebar:
 
         # SPLIT TEXT
         def split_text(text, size=500):
+            if not text.strip():
+                return []
             return [text[i:i+size] for i in range(0, len(text), size)]
 
         chunks = split_text(text)
-        st.session_state.chunks = chunks
+        
+        if not chunks:
+            st.error("⚠️ No readable text found in the uploaded PDFs. Please ensure they are not scanned images.")
+        else:
+            st.session_state.chunks = chunks
 
-        # EMBEDDINGS
-        embeddings = embed_model.encode(chunks)
-        embeddings = np.array(embeddings).astype("float32")
+            # EMBEDDINGS
+            with st.spinner("Generating embeddings..."):
+                embeddings = embed_model.encode(chunks)
+                embeddings = np.array(embeddings).astype("float32")
 
-        # FAISS INDEX
-        dim = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dim)
-        index.add(embeddings)
-
-        st.session_state.index = index
-
-        st.success("✅ PDFs processed successfully!")
+                # FAISS INDEX
+                if embeddings.shape[0] > 0:
+                    dim = embeddings.shape[1]
+                    index = faiss.IndexFlatL2(dim)
+                    index.add(embeddings)
+                    st.session_state.index = index
+                    st.success(f"✅ Processed {len(chunks)} chunks successfully!")
+                else:
+                    st.error("⚠️ Failed to generate embeddings.")
 
     if st.button("🗑 Clear Chat"):
         st.session_state.messages = []
@@ -92,13 +112,15 @@ with st.sidebar:
 # SEARCH FUNCTION
 # -------------------------
 def search(query, k=5):
-    if st.session_state.index is None:
+    if st.session_state.index is None or not st.session_state.chunks:
         return []
 
     q_vec = embed_model.encode([query]).astype("float32")
     D, I = st.session_state.index.search(q_vec, k)
 
-    return [st.session_state.chunks[i] for i in I[0]]
+    # Filter out -1 indices (FAISS default for no match) and ensure indices are valid
+    valid_indices = [i for i in I[0] if 0 <= i < len(st.session_state.chunks)]
+    return [st.session_state.chunks[i] for i in valid_indices]
 
 # -------------------------
 # DISPLAY CHAT
