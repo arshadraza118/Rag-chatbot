@@ -20,17 +20,17 @@ st.title("🚀 AI PDF Chatbot (RAG)")
 # API KEY
 # -------------------------
 # Priority: 1. Environment Variable (.env or OS) 2. Streamlit Secrets (Cloud)
-api_key = os.getenv("GEMINI_API_KEY")
+# Check for both GEMINI_API_KEY and GOOGLE_API_KEY (standard naming)
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY")
+        api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
     except Exception:
-        # st.secrets might raise an error if no secrets file exists locally
         api_key = None
 
 if not api_key:
-    st.error("⚠️ GEMINI_API_KEY not found! Add it in a .env file locally or in Streamlit Secrets on Cloud.")
+    st.error("⚠️ API Key not found! Add GEMINI_API_KEY or GOOGLE_API_KEY in a .env file locally or in Streamlit Secrets on Cloud.")
     st.stop()
 
 # -------------------------
@@ -40,8 +40,15 @@ if not api_key:
 def load_models():
     genai.configure(api_key=api_key)
 
-    # ✅ Use standard model name without 'models/' prefix
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # ✅ Primary model with fallback logic
+    model_name = "gemini-1.5-flash"
+    try:
+        model = genai.GenerativeModel(model_name)
+        # Test if model exists
+        genai.get_model(f"models/{model_name}")
+    except Exception:
+        model_name = "gemini-flash-latest"
+        model = genai.GenerativeModel(model_name)
 
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -75,7 +82,11 @@ with st.sidebar:
         for file in files:
             reader = PdfReader(file)
             for page in reader.pages:
-                text += page.extract_text() or ""
+                extracted = page.extract_text()
+                if extracted:
+                    # Clean text to remove non-printable characters
+                    cleaned = "".join(char for char in extracted if char.isprintable() or char in "\n\t")
+                    text += cleaned
 
         # SPLIT TEXT
         def split_text(text, size=500):
@@ -161,8 +172,11 @@ if user_input:
 
         # ✅ SAFE GENERATION
         try:
-            response = model.generate_content(prompt)
-            reply = response.text if hasattr(response, "text") else "⚠️ No response"
+            if not prompt.strip():
+                reply = "⚠️ Prompt is empty."
+            else:
+                response = model.generate_content(contents=prompt)
+                reply = response.text if hasattr(response, "text") else "⚠️ No response"
         except Exception as e:
             reply = f"⚠️ Error: {str(e)}"
 
