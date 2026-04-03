@@ -28,10 +28,11 @@ if not api_key:
 def load_models():
     genai.configure(api_key=api_key)
 
-    # ✅ FIXED MODEL (WORKS EVERYWHERE)
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+    # ✅ FINAL FIXED MODEL NAME
+    model = genai.GenerativeModel("models/gemini-1.5-flash")
 
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+
     return model, embed_model
 
 model, embed_model = load_models()
@@ -136,10 +137,10 @@ if user_input:
         {user_input}
         """
 
-        # ✅ SAFE RESPONSE HANDLING
+        # ✅ SAFE GENERATION
         try:
             response = model.generate_content(prompt)
-            reply = response.text
+            reply = response.text if hasattr(response, "text") else "⚠️ No response"
         except Exception as e:
             reply = f"⚠️ Error: {str(e)}"
 
