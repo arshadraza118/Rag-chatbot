@@ -4,7 +4,7 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
-from pypdf import PdfReader   # ✅ more stable than PyPDF2
+from pypdf import PdfReader
 
 # -------------------------
 # CONFIG
@@ -18,16 +18,19 @@ st.title("🚀 AI PDF Chatbot (RAG)")
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("⚠️ GEMINI_API_KEY not found! Please add it to your Streamlit Secrets.")
+    st.error("⚠️ GEMINI_API_KEY not found! Add it in Streamlit Secrets.")
     st.stop()
 
 # -------------------------
-# MODELS (CACHED)
+# LOAD MODELS (CACHED)
 # -------------------------
 @st.cache_resource
 def load_models():
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    # ✅ FIXED MODEL (WORKS EVERYWHERE)
+    model = genai.GenerativeModel("gemini-pro")
+
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
     return model, embed_model
 
@@ -46,7 +49,7 @@ if "chunks" not in st.session_state:
     st.session_state.chunks = []
 
 # -------------------------
-# SIDEBAR
+# SIDEBAR (UPLOAD PDFs)
 # -------------------------
 with st.sidebar:
     st.header("📂 Upload PDFs")
@@ -72,20 +75,20 @@ with st.sidebar:
         embeddings = embed_model.encode(chunks)
         embeddings = np.array(embeddings).astype("float32")
 
-        # FAISS
+        # FAISS INDEX
         dim = embeddings.shape[1]
         index = faiss.IndexFlatL2(dim)
         index.add(embeddings)
 
         st.session_state.index = index
 
-        st.success("PDFs processed successfully!")
+        st.success("✅ PDFs processed successfully!")
 
     if st.button("🗑 Clear Chat"):
         st.session_state.messages = []
 
 # -------------------------
-# SEARCH
+# SEARCH FUNCTION
 # -------------------------
 def search(query, k=5):
     if st.session_state.index is None:
@@ -97,7 +100,7 @@ def search(query, k=5):
     return [st.session_state.chunks[i] for i in I[0]]
 
 # -------------------------
-# CHAT DISPLAY
+# DISPLAY CHAT
 # -------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -124,7 +127,7 @@ if user_input:
         prompt = f"""
         You are a helpful AI assistant.
 
-        Answer clearly using the context.
+        Answer clearly using the context below.
 
         Context:
         {context}
@@ -133,8 +136,12 @@ if user_input:
         {user_input}
         """
 
-        response = model.generate_content(prompt)
-        reply = response.text
+        # ✅ SAFE RESPONSE HANDLING
+        try:
+            response = model.generate_content(prompt)
+            reply = response.text
+        except Exception as e:
+            reply = f"⚠️ Error: {str(e)}"
 
     st.session_state.messages.append({"role": "assistant", "content": reply})
 
