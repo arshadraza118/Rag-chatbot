@@ -29,7 +29,7 @@ def load_models():
     genai.configure(api_key=api_key)
 
     # ✅ FIXED MODEL (WORKS EVERYWHERE)
-    model = genai.GenerativeModel("gemini-pro")
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
 
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
     return model, embed_model
